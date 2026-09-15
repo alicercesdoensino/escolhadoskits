@@ -453,7 +453,7 @@
         <button type="button" id="btnProximo" onclick="avancarPasso()" class="px-8 py-3 rounded-xl font-bold text-white bg-[#50b0a7] shadow-lg shadow-[#50b0a7]/30 hover:bg-[#43968e] flex items-center gap-2 transition-all">
           Próximo <i data-lucide="arrow-right" class="w-4 h-4"></i>
         </button>
-        <button type="submit" id="btnSalvar" class="hidden px-8 py-3 rounded-xl font-bold text-white bg-[#f38932] shadow-lg shadow-[#f38932]/30 hover:bg-[#e07a29] flex items-center gap-2 transition-all">
+        <button type="button" id="btnSalvar" onclick="finalizarEnvio()" class="hidden px-8 py-3 rounded-xl font-bold text-white bg-[#f38932] shadow-lg shadow-[#f38932]/30 hover:bg-[#e07a29] flex items-center gap-2 transition-all">
           Finalizar e Enviar <i data-lucide="send" class="w-4 h-4"></i>
         </button>
       </div>
@@ -854,6 +854,65 @@
             el.style.backgroundColor = '#fff4e6'; el.style.borderColor = '#f38932'; el.style.color = '#b5651d';
         }
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Acionada pelo botão "Finalizar e Enviar". Antes de validar, remove
+    // 'required' de campos que não fazem parte do fluxo atual (ocultos por
+    // condições que não se aplicam). Se houver um obrigatório pendente numa
+    // etapa anterior (ex.: quantidade de uma faixa contratada), leva o cliente
+    // até essa etapa e mostra o que falta — em vez de travar em silêncio.
+    function finalizarEnvio() {
+        // 1) Primeira passada: remove 'required' de TODOS os campos que estão
+        // em etapas que não fazem parte do fluxo atual (ex.: representantes numa
+        // renovação, ou um segmento não marcado).
+        document.querySelectorAll('#kitsForm [required]').forEach(function(el){
+            const secao = el.closest('.step-content');
+            const etapa = secao ? parseInt(secao.getAttribute('data-step')) : null;
+            if (secao && !etapaFazParteDoFluxo(etapa)) { el.required = false; }
+        });
+
+        // 2) Segunda passada: procura o primeiro obrigatório ainda vazio
+        const obrigatorios = [...document.querySelectorAll('#kitsForm [required]')];
+        let pendente = null;
+        for (const el of obrigatorios) {
+            const vazio = (el.type === 'checkbox' || el.type === 'radio')
+                ? !document.querySelector('[name="' + el.name + '"]:checked')
+                : (el.value === '' || el.value == null);
+            if (vazio) {
+                const secao = el.closest('.step-content');
+                const etapa = secao ? parseInt(secao.getAttribute('data-step')) : null;
+                pendente = { el: el, etapa: etapa };
+                break;
+            }
+        }
+
+        // 3) Se há pendência, navega até a etapa dela e sinaliza
+        if (pendente) {
+            if (pendente.etapa && pendente.etapa !== passoAtual) {
+                passoAtual = pendente.etapa;
+                atualizarInterfaceWizard();
+            }
+            mostrarFeedback("Faltam campos obrigatórios nesta etapa. Preencha os itens destacados para concluir o envio.", "erro");
+            setTimeout(function(){
+                try { pendente.el.scrollIntoView({ behavior: 'smooth', block: 'center' }); pendente.el.reportValidity(); } catch(e){}
+            }, 200);
+            return;
+        }
+
+        // 4) Tudo certo: envia
+        const form = document.getElementById('kitsForm');
+        if (form.requestSubmit) { form.requestSubmit(); }
+        else { form.dispatchEvent(new Event('submit', {cancelable:true})); }
+    }
+
+    // Indica se uma etapa faz parte do fluxo do preenchimento atual
+    function etapaFazParteDoFluxo(etapa) {
+        const tipoProcesso = document.querySelector('input[name="tipo_processo"]:checked')?.value;
+        if (etapa === 2) return tipoProcesso === 'Novo Contrato'; // Representantes
+        if (etapa === 7) return document.getElementById('checkEI').checked;  // Infantil
+        if (etapa === 8) return document.getElementById('checkF1').checked;  // EF I
+        if (etapa === 9) return document.getElementById('checkF2').checked;  // EF II
+        return true; // demais etapas sempre fazem parte
     }
 
     document.getElementById('kitsForm').addEventListener('submit', function(e) {
